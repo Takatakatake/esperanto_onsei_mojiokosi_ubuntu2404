@@ -1,5 +1,7 @@
 # Esperanto Realtime Transcription
 
+日本語版 README は `README_ja.md` をご覧ください。
+
 Realtime transcription pipeline tailored for Esperanto conversations on Zoom and Google Meet.  
 The implementation follows the design principles captured in *エスペラント（Esperanto）会話を“常時・高精度・低遅延”に文字起こしするための実現案1.md*:
 
