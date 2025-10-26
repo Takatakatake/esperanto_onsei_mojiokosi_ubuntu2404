@@ -6,8 +6,7 @@ __pycache__/
 .venv/
 .venv311/
 
-# Local config & logs
-.env
+# Local logs
 logs/
 
 # OS/editor noise
