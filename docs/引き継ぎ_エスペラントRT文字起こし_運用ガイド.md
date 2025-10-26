@@ -23,6 +23,7 @@
 1) `.venv311` を有効化 → `pip install -r requirements.txt` 済み確認。
 2) `python -m transcriber.cli --list-devices` で仮想入力デバイス番号を確認（例: pipewire = 8）。
 3) `.env` を設定：`SPEECHMATICS_API_KEY`、`SPEECHMATICS_CONNECTION_URL`（EUは `wss://eu2.rt.speechmatics.com/v2`）、`AUDIO_DEVICE_INDEX`。
+   - 本リポジトリには「伏せ字入り」の `.env` を同梱しています。実運用ではご自身の実値に置き換えてください。
 4) `python -m transcriber.cli --show-config` で `connection_url` と `audio.sample_rate=16000` を確認。
 5) `python -m transcriber.cli --backend=speechmatics --log-level=INFO` で起動。`Recognition started.` → `Final:` が出ればOK。
 6) （翻訳/共有を使う場合）`.env` に `WEB_UI_ENABLED=true`、`TRANSLATION_ENABLED=true`、`TRANSLATION_PROVIDER=google`、`TRANSLATION_TARGETS=ja,ko` 等を設定。  
@@ -278,8 +279,9 @@ Sanity テスト（任意）
 ## 9. セキュリティと運用
 
 - `.env` やログに機微情報を残さない
-  - `.gitignore` に `.env` と `logs/` を登録済み
-  - キーの貼付や共有は厳禁、必要ならキーのローテーション
+  - 本リポジトリは学習/再現容易性のため、伏せ字入りの `.env` を「追跡」しています（実値は空欄や `*`）。
+  - 本番運用では `.env` を追跡しないことを推奨します（例: `.env.local` を使い `.gitignore` に追加）。
+  - 実キーの貼付や共有は厳禁。必要に応じてキーのローテーションを行うこと。
 - 参加者への通知
   - 録音・字幕の実施を事前に周知
 - コスト/クォータ
@@ -344,15 +346,15 @@ source .venv311/bin/activate
 
 `prep-webui.sh` は既存の CLI プロセスを終了し、8765 が LISTEN していない状態になるまで待ってからコマンドを返すので、続けて実行する `python -m ...` が必ず 8765 にバインドできます。
 
-どうしても 8765 が開放されない場合は、以下の 4 行で強制的にリセット可能です（Chrome の Network Service なども含め、8765 を掴んでいるプロセスをすべて終了します）。
+「8765 を完全に空にしたいときは、以下 3 行を続けて実行してください」。Chrome の Network Service などが掴んでいる場合でも強制的に開放します。
 
 ```bash
-source .venv311/bin/activate
-pkill -f "python -m transcriber.cli"
-lsof -t -iTCP:8765 | xargs -r kill -9
-sleep 0.5 && lsof -iTCP:8765    # 出力が空ならOK
-python -m transcriber.cli --backend=speechmatics --log-level=INFO
+pkill -f "python -m transcriber.cli" || true
+lsof -t -iTCP:8765 | xargs -r kill -9 || true
+sleep 0.5 && lsof -iTCP:8765    # 何も出なければOK
 ```
+
+その後、必要に応じて通常どおり `python -m transcriber.cli ...` を再起動してください。
 
 ### 11.2 モニター入力の自動復旧（PipeWire/WirePlumber）
 

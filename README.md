@@ -30,6 +30,43 @@ Optional:
 
 ---
 
+## 0. 日本語クイックスタート（GitHub から）
+
+```bash
+git clone git@github.com:Takatakatake/esperanto_onsei_mojiokosi.git
+cd esperanto_onsei_mojiokosi
+python -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
+# リポジトリには伏せ字入りの `.env` を同梱しています（安全な雛形）。
+# 既に `.env` がある場合は開いて値を置き換えてください。
+# 無い場合は例からコピーして編集します：
+test -f .env || cp .env.example .env
+```
+
+編集ポイント（例）：
+
+```ini
+SPEECHMATICS_API_KEY=****************************   # 本物のキーに置換
+SPEECHMATICS_CONNECTION_URL=wss://eu2.rt.speechmatics.com/v2
+AUDIO_DEVICE_INDEX=8                               # --list-devices の番号
+WEB_UI_ENABLED=true
+TRANSLATION_ENABLED=true
+TRANSLATION_TARGETS=ja,ko
+```
+
+その後、デバイス確認と起動：
+
+```bash
+python -m transcriber.cli --list-devices
+python -m transcriber.cli --log-level=INFO
+```
+
+Web UI は `http://127.0.0.1:8765` で開けます（`.env` の `WEB_UI_OPEN_BROWSER=true` で自動起動）。
+
+---
+
 ## 2. Bootstrap
 
 ```bash
@@ -38,10 +75,11 @@ python -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
-cp .env.example .env
+# `.env` は本リポジトリに同梱（伏せ字）されています。無い場合のみコピー：
+test -f .env || cp .env.example .env
 ```
 
-Edit `.env`:
+Edit `.env` (サンプルは伏せ字。実値に置換してください):
 
 ```ini
 TRANSCRIPTION_BACKEND=speechmatics  # or vosk / whisper
@@ -195,15 +233,15 @@ source /media/yamada/SSD-PUTA1/CODEX作業用202510/.venv311/bin/activate
 
 `prep-webui.sh` terminates lingering CLI processes, frees port 8765, and waits until it is available so the subsequent CLI command binds that port on the first try.
 
-Need to hard-reset the port manually? Run these three lines (they also kill any Chrome/NetworkService connection holding 8765):
+8765 を完全に空にしたいときは、以下 3 行を続けて実行してください（Chrome の Network Service などが掴んでいても強制的に開放します）:
 
 ```bash
-source /media/yamada/SSD-PUTA1/CODEX作業用202510/.venv311/bin/activate
-pkill -f "python -m transcriber.cli"
-lsof -t -iTCP:8765 | xargs -r kill -9
-sleep 0.5 && lsof -iTCP:8765    # should print nothing
-python -m transcriber.cli --backend=speechmatics --log-level=INFO
+pkill -f "python -m transcriber.cli" || true
+lsof -t -iTCP:8765 | xargs -r kill -9 || true
+sleep 0.5 && lsof -iTCP:8765    # 何も出なければOK
 ```
+
+その後、必要なら通常どおり `python -m transcriber.cli ...` を再起動してください。
 
 ---
 
