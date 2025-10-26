@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from enum import Enum
 from functools import lru_cache
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field, ValidationError
@@ -97,6 +97,7 @@ class TranslationConfig(BaseModel):
     google_api_key: Optional[str] = None
     google_model: Optional[str] = None
     google_credentials_path: Optional[str] = None
+    default_visibility: Dict[str, bool] = Field(default_factory=dict)
 
 
 class DiscordConfig(BaseModel):
@@ -216,6 +217,23 @@ def load_settings() -> Settings:
                 if cleaned:
                     translation_targets.append(cleaned)
 
+        raw_visibility = env.get("TRANSLATION_DEFAULT_VISIBILITY", "")
+        translation_visibility: Dict[str, bool] = {}
+        if raw_visibility:
+            for entry in raw_visibility.split(","):
+                if not entry.strip():
+                    continue
+                if ":" in entry:
+                    lang, state = entry.split(":", 1)
+                    lang = lang.strip()
+                    state = state.strip().lower()
+                    if lang:
+                        translation_visibility[lang] = state in {"1", "true", "yes", "on"}
+                else:
+                    lang = entry.strip()
+                    if lang:
+                        translation_visibility[lang] = True
+
         translation_cfg = TranslationConfig(
             enabled=env.get("TRANSLATION_ENABLED", "false").lower() in {"1", "true", "yes"}
             or bool(translation_targets),
@@ -228,6 +246,7 @@ def load_settings() -> Settings:
             google_api_key=env.get("GOOGLE_TRANSLATE_API_KEY"),
             google_model=env.get("GOOGLE_TRANSLATE_MODEL"),
             google_credentials_path=env.get("GOOGLE_TRANSLATE_CREDENTIALS_PATH"),
+            default_visibility=translation_visibility,
         )
 
         settings = Settings(

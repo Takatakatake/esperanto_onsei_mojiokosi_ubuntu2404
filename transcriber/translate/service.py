@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
+from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, Optional
+from typing import Dict, Iterable, Optional, Tuple
 
 import aiohttp
 
@@ -38,6 +40,8 @@ class TranslationService:
         google_api_key: Optional[str] = None,
         google_model: Optional[str] = None,
         google_credentials_path: Optional[str] = None,
+        cache_ttl_seconds: float = 120.0,
+        cache_max_size: int = 128,
     ) -> None:
         self.enabled = enabled and bool(targets)
         self.source_language = source_language
@@ -51,6 +55,9 @@ class TranslationService:
         self._timeout = aiohttp.ClientTimeout(total=timeout)
         self._session: Optional[aiohttp.ClientSession] = None
         self._lock = asyncio.Lock()
+        self._cache: "OrderedDict[Tuple[str, Tuple[str, ...], str, str], Tuple[float, Dict[str, str]]]" = OrderedDict()
+        self._cache_ttl = max(cache_ttl_seconds, 0.0)
+        self._cache_max_size = max(cache_max_size, 1)
         self._google_credentials = None
         self._google_request = None
         if self.provider == "google" and not self.google_api_key:
@@ -75,12 +82,55 @@ class TranslationService:
             await self._session.close()
             self._session = None
 
+    def _cache_key(self, text: str) -> Tuple[str, Tuple[str, ...], str, str]:
+        return (
+            text.strip(),
+            tuple(sorted(self.targets)),
+            self.provider,
+            self.source_language,
+        )
+
+    def _get_cached(self, key: Tuple[str, Tuple[str, ...], str, str]) -> Optional[Dict[str, str]]:
+        if self._cache_ttl <= 0:
+            return None
+        now = time.time()
+        expired_before = now - self._cache_ttl
+        # Remove expired entries lazily.
+        while self._cache and next(iter(self._cache.values()))[0] < expired_before:
+            self._cache.popitem(last=False)
+        cached = self._cache.get(key)
+        if not cached:
+            return None
+        timestamp, translations = cached
+        if timestamp < expired_before:
+            self._cache.pop(key, None)
+            return None
+        # Move to end for LRU behaviour.
+        self._cache.move_to_end(key)
+        return dict(translations)
+
+    def _store_cache(self, key: Tuple[str, Tuple[str, ...], str, str], translations: Dict[str, str]) -> None:
+        if self._cache_ttl <= 0:
+            return
+        while len(self._cache) >= self._cache_max_size:
+            self._cache.popitem(last=False)
+        self._cache[key] = (time.time(), dict(translations))
+
     async def translate(self, text: str) -> TranslationResult:
         if not self.enabled or not text.strip():
             return TranslationResult(text=text, translations={})
 
         translations: Dict[str, str] = {}
+        key = self._cache_key(text)
+        cached = self._get_cached(key)
+        if cached is not None:
+            return TranslationResult(text=text, translations=cached)
+
         async with self._lock:
+            cached = self._get_cached(key)
+            if cached is not None:
+                return TranslationResult(text=text, translations=cached)
+
             if self._session is None or self._session.closed:
                 self._session = aiohttp.ClientSession(timeout=self._timeout)
 
@@ -91,6 +141,7 @@ class TranslationService:
                     logging.error("Translation to %s failed: %s", target, result)
                 elif result:
                     translations[target] = result
+            self._store_cache(key, translations)
 
         return TranslationResult(text=text, translations=translations)
 

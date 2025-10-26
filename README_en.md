@@ -112,6 +112,7 @@ TRANSLATION_PROVIDER=google
 TRANSLATION_SOURCE_LANGUAGE=eo
 TRANSLATION_TARGETS=ja,ko
 TRANSLATION_TIMEOUT_SECONDS=8.0
+TRANSLATION_DEFAULT_VISIBILITY=ja:on,ko:off
 GOOGLE_TRANSLATE_CREDENTIALS_PATH=/absolute/path/to/gen-lang-client-xxxx.json
 GOOGLE_TRANSLATE_MODEL=nmt
 # If using API-key based access: GOOGLE_TRANSLATE_API_KEY=...
@@ -137,7 +138,16 @@ Start the pipeline (prints finals to stdout, pushes finals to Zoom):
 python -m transcriber.cli --log-level=INFO
 ```
 
-- With `WEB_UI_ENABLED=true` the lightweight caption board runs at `http://127.0.0.1:8765`.
+- With `WEB_UI_ENABLED=true` the caption board runs at `http://127.0.0.1:8765`. The layout now separates the latest utterance (left) and history (right), stores theme/font/toggle preferences, and offers copy / export / clear buttons for the transcript log.
+- Translation toggles appear automatically from `TRANSLATION_TARGETS`, and their initial state can be tuned with `TRANSLATION_DEFAULT_VISIBILITY`.
+
+### Web UI Cheat Sheet
+
+- The help panel at the top summarises the main controls.
+- Enable “Partial” to show interim captions; disable it to focus on confirmed utterances only.
+- Font size and dark mode switches persist via `localStorage`, so your preferences carry over to the next session.
+- Translation toggles switch each language on/off. Add or remove languages via `.env` (`TRANSLATION_TARGETS` / `TRANSLATION_DEFAULT_VISIBILITY`).
+- The history panel keeps the newest lines at the top. Use the “Copy / Save / Clear” buttons to share or reset the log instantly.
 - With a Discord webhook configured, the pipeline batches finals into natural sentences and posts a single message containing the Esperanto line and all enabled translations.
 
 Switch backends or override log output on demand:

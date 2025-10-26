@@ -95,13 +95,14 @@ TRANSCRIPT_LOG_PATH=logs/meet-session.log
   TRANSLATION_ENABLED=true
   TRANSLATION_PROVIDER=google
   TRANSLATION_TARGETS=ja,ko
+  TRANSLATION_DEFAULT_VISIBILITY=ja:on,ko:off
   GOOGLE_TRANSLATE_CREDENTIALS_PATH=/absolute/path/to/service-account.json
   GOOGLE_TRANSLATE_MODEL=nmt
   # 任意: GOOGLE_TRANSLATE_API_KEY=<APIキーを使う場合>
   # 任意: LIBRETRANSLATE_API_KEY=<LibreTranslateを使う場合>
   DISCORD_WEBHOOK_ENABLED=true
   ```
-  Web UI を共有するだけで良い場合は Webhook を省略可能。Webhook を設定すると Discord 側に原文と翻訳をまとめたメッセージを数秒単位で投稿する。
+Web UI を共有するだけで良い場合は Webhook を省略可能。Webhook を設定すると Discord 側に原文と翻訳をまとめたメッセージを数秒単位で投稿する。
 
 ### 3.1 GitHub からダウンロードしたユーザー向け（環境構築スクリプト）
 
@@ -204,11 +205,13 @@ Sanity テスト（任意）
 ### 6.1 翻訳表示・Discord 共有
 
 - Web UI の翻訳トグル
-  - 初回に翻訳が到着すると、ヘッダ右側に言語別トグル（例: 日本語・한국어）が自動で現れます。デフォルトはON。
-  - トグルをOFFにすると、メイン画面・履歴の該当言語が非表示になります。
+  - `.env` の `TRANSLATION_TARGETS` を読み込み、起動直後からヘッダ右側に言語別トグル（例: 日本語・한국어）を表示します。初期状態は `TRANSLATION_DEFAULT_VISIBILITY` で制御可能（省略時は ON）。
+  - トグルをOFFにすると、メイン画面（最新発話）と履歴の該当言語が同時に非表示になります。設定はブラウザに保存され、再読込時に復元されます。
+  - ヘッダ下部に簡易ヘルプカードを追加。主要操作（トグル／フォント／履歴ボタン）を短くまとめているため、初見ユーザーへの案内に便利です。
 - 表示レイアウト
-  - メイン画面: 原文の直下に翻訳を縦並び表示。履歴にも同じ構成で蓄積されるため、後からスクロールして内容を確認可能。
-  - 文字サイズスライダーは翻訳部分にも反映される（相対的に少し小さめ）。
+  - 左カラムに最新発話（Esperanto＋翻訳）、右カラムに履歴を表示。履歴には最新行が上に追加され、最大500件でローテーションします。
+  - ヘッダには「文字サイズ」「ダークテーマ」「途中経過表示」「履歴コピー／保存／クリア」ボタンがあり、操作結果は `localStorage` に保持されます。
+  - 翻訳が取得できなかった場合は「翻訳待ち」のプレースホルダで明示し、遅延や失敗が一目で分かるようにしています。
 - Discord Webhook
   - 2秒間隔で確定文を蓄積し、まとまった文章単位で投稿。長文や高速連続確定の場合でもチャンネルがスパム化しません。
   - 翻訳を有効化している場合は、`Esperanto:` に続けて各言語の翻訳を折り返しで表示。

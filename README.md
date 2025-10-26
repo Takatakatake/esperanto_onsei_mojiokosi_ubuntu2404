@@ -111,6 +111,7 @@ TRANSLATION_PROVIDER=google
 TRANSLATION_SOURCE_LANGUAGE=eo
 TRANSLATION_TARGETS=ja,ko
 TRANSLATION_TIMEOUT_SECONDS=8.0
+TRANSLATION_DEFAULT_VISIBILITY=ja:on,ko:off
 GOOGLE_TRANSLATE_CREDENTIALS_PATH=/absolute/path/to/gen-lang-client-xxxx.json
 GOOGLE_TRANSLATE_MODEL=nmt
 # API キー派生を使う場合は GOOGLE_TRANSLATE_API_KEY=...
@@ -134,7 +135,16 @@ DISCORD_BATCH_MAX_CHARS=350
   python -m transcriber.cli --log-level=INFO
   ```
 
-- `WEB_UI_ENABLED=true` のとき、簡易字幕ボードが `http://127.0.0.1:8765` で起動します。最新の確定文と、言語ごとのトグル（例: 日本語/韓国語）で翻訳を表示できます。
+- `WEB_UI_ENABLED=true` のとき、簡易字幕ボードが `http://127.0.0.1:8765` で起動します。最新発話（左カラム）と履歴（右カラム）が同時に確認でき、翻訳トグル・フォントサイズ・テーマ設定が保存されるようになりました。
+- 翻訳トグルは `.env` の `TRANSLATION_TARGETS` と `TRANSLATION_DEFAULT_VISIBILITY` に基づいて初期表示されます。履歴のコピー／保存／クリアボタンもヘッダに用意しています。
+
+### Web UI 操作ガイド
+
+- 画面上部のヘルプカードに主要な操作が記載されています。
+- 「Partial」をオンにすると途中経過の字幕が表示され、オフで確定文のみになります。
+- フォントサイズスライダーとダークテーマ切替はブラウザに保存され、次回以降も継続されます。
+- 翻訳トグルは言語ごとに ON/OFF を切り替え可能です（設定はブラウザに保存）。翻訳ターゲットは `.env` の `TRANSLATION_TARGETS` で追加・削除できます。
+- 右カラムの履歴には最新行から順に追加され、上部の「履歴をコピー／保存／クリア」ボタンでそのまま共有・リセットできます。
 - Discord Webhook を設定すると、確定文を自然な文単位でまとめ、エスペラント原文と各翻訳を 1 つのメッセージにして投稿します。
 
 - バックエンドやログ出力の一時変更:

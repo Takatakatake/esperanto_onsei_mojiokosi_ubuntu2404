@@ -43,32 +43,38 @@ class SpeechmaticsRealtimeBackend(StreamingTranscriptionBackend):
     async def connect(self) -> None:
         """Establish the websocket connection and send the start message."""
 
-        logging.info("Connecting to Speechmatics realtime endpoint.")
+        self._connected.clear()
+        self._recognition_started.clear()
+        max_attempts = max(0, self.config.max_reconnect_attempts)
+        backoff = max(self.config.reconnect_backoff_seconds, 0.1)
+        attempt = 0
+        last_exc: Optional[Exception] = None
 
-        # Resolve authorization token (prefer provided JWT, otherwise exchange API key → temporary JWT)
-        token = self.config.jwt_token
-        if not token:
-            token = await self._authorize_jwt()
-        if not token:
-            raise SpeechmaticsRealtimeError("Failed to obtain JWT for Speechmatics.")
+        while attempt <= max_attempts:
+            if attempt > 0:
+                delay = backoff * (2 ** (attempt - 1))
+                logging.warning(
+                    "Speechmatics connection retry %d/%d in %.1f seconds.",
+                    attempt,
+                    max_attempts,
+                    delay,
+                )
+                await asyncio.sleep(delay)
 
-        headers = {"Authorization": f"Bearer {token}"}
+            try:
+                ws_url, headers = await self._build_connection_params()
+                await self._open_connection(ws_url, headers)
+                logging.info("Connected to Speechmatics realtime endpoint.")
+                return
+            except SpeechmaticsRealtimeError as exc:
+                last_exc = exc
+                logging.error("Speechmatics connection attempt failed: %s", exc)
+                await self.close()
+            attempt += 1
 
-        # Ensure websocket URL includes language suffix as required by RT v2
-        ws_url = self._augment_ws_url_with_language(self.config.connection_url, self.config.language)
-
-        try:
-            self._websocket = await websockets.connect(
-                ws_url,
-                additional_headers=headers,
-                max_size=4 * 1024 * 1024,
-            )
-        except Exception as exc:  # pylint: disable=broad-except
-            raise SpeechmaticsRealtimeError(f"Failed to connect to Speechmatics: {exc}") from exc
-
-        await self._send_start_message()
-        self._connected.set()
-        self._listen_task = asyncio.create_task(self._listen_loop(), name="speechmatics-listener")
+        raise SpeechmaticsRealtimeError(
+            f"Failed to connect to Speechmatics after {max_attempts + 1} attempts."
+        ) from last_exc
 
     async def _authorize_jwt(self) -> Optional[str]:
         """Exchange API key for a short-lived JWT via HTTPS.
@@ -124,6 +130,34 @@ class SpeechmaticsRealtimeBackend(StreamingTranscriptionBackend):
                 path += f"/{lang}"
         return urlunparse(parsed._replace(path=path))
 
+    async def _build_connection_params(self) -> tuple[str, Dict[str, str]]:
+        token = self.config.jwt_token
+        if not token:
+            token = await self._authorize_jwt()
+        if not token:
+            raise SpeechmaticsRealtimeError("Failed to obtain JWT for Speechmatics.")
+        headers = {"Authorization": f"Bearer {token}"}
+        ws_url = self._augment_ws_url_with_language(self.config.connection_url, self.config.language)
+        return ws_url, headers
+
+    async def _open_connection(self, ws_url: str, headers: Dict[str, str]) -> None:
+        try:
+            self._websocket = await websockets.connect(
+                ws_url,
+                additional_headers=headers,
+                max_size=4 * 1024 * 1024,
+                ping_interval=20,
+                ping_timeout=20,
+                close_timeout=10,
+                max_queue=32,
+            )
+        except Exception as exc:  # pylint: disable=broad-except
+            raise SpeechmaticsRealtimeError(f"Failed to connect to Speechmatics: {exc}") from exc
+
+        await self._send_start_message()
+        self._connected.set()
+        self._listen_task = asyncio.create_task(self._listen_loop(), name="speechmatics-listener")
+
     async def close(self) -> None:
         """Close the websocket connection gracefully."""
 
@@ -138,6 +172,8 @@ class SpeechmaticsRealtimeBackend(StreamingTranscriptionBackend):
                 await self._websocket.close()
             finally:
                 self._websocket = None
+        self._connected.clear()
+        self._recognition_started.clear()
 
     async def send_audio_chunk(self, chunk: bytes) -> None:
         """Send raw PCM audio bytes to the websocket."""

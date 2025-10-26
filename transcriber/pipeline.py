@@ -180,6 +180,11 @@ class TranscriptionPipeline:
             max_chars=self.settings.discord.batch_max_chars,
         )
         translation_cfg = self.settings.translation
+        self._translation_targets = list(translation_cfg.targets)
+        self._translation_defaults = {
+            lang: translation_cfg.default_visibility.get(lang, True)
+            for lang in self._translation_targets
+        }
         self._translation_service = TranslationService(
             enabled=translation_cfg.enabled,
             source_language=translation_cfg.source_language,
@@ -191,6 +196,7 @@ class TranscriptionPipeline:
             google_api_key=translation_cfg.google_api_key,
             google_model=translation_cfg.google_model,
             google_credentials_path=translation_cfg.google_credentials_path,
+            cache_ttl_seconds=translation_cfg.timeout_seconds * 4,
         )
 
     async def run(self) -> None:
@@ -209,6 +215,8 @@ class TranscriptionPipeline:
                         self._web_ui = CaptionWebUI(
                             host=self.settings.web.host,
                             port=self.settings.web.port,
+                            translation_targets=self._translation_targets,
+                            translation_default_visibility=self._translation_defaults,
                         )
                         try:
                             await self._web_ui.start()
@@ -222,7 +230,7 @@ class TranscriptionPipeline:
                             self._web_ui = None
                         else:
                             if self.settings.web.open_browser:
-                                url = f"http://{self.settings.web.host}:{self.settings.web.port}"
+                                url = f"http://{self.settings.web.host}:{self._web_ui.port}"
                                 loop = asyncio.get_running_loop()
                                 await loop.run_in_executor(None, functools.partial(webbrowser.open, url))
                     async with self._audio_stream.connect() as audio_stream:

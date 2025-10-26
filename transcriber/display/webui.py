@@ -5,7 +5,7 @@ import json
 import logging
 import errno
 from pathlib import Path
-from typing import Optional, Set
+from typing import Dict, List, Optional, Set
 
 from aiohttp import web, WSMsgType
 
@@ -23,6 +23,8 @@ class CaptionWebUI:
         port: int = 8765,
         web_root: Optional[Path] = None,
         max_port_attempts: int = 5,
+        translation_targets: Optional[List[str]] = None,
+        translation_default_visibility: Optional[Dict[str, bool]] = None,
     ) -> None:
         self.host = host
         self.port = port
@@ -34,11 +36,16 @@ class CaptionWebUI:
         self._site: Optional[web.TCPSite] = None
         self._clients: Set[web.WebSocketResponse] = set()
         self._task: Optional[asyncio.Task] = None
+        self._config_payload = {
+            "targets": list(translation_targets or []),
+            "defaultVisibility": translation_default_visibility or {},
+        }
 
     async def start(self) -> None:
         app = web.Application()
         app.router.add_get("/", self._handle_index)
         app.router.add_get("/ws", self._handle_ws)
+        app.router.add_get("/config", self._handle_config)
         app.router.add_static("/static", str(self.web_root / "static"))
         self._app = app
         self._runner = web.AppRunner(app)
@@ -88,6 +95,9 @@ class CaptionWebUI:
     async def _handle_index(self, request: web.Request) -> web.Response:
         index_path = self.web_root / "index.html"
         return web.FileResponse(path=str(index_path))
+
+    async def _handle_config(self, request: web.Request) -> web.Response:
+        return web.json_response(self._config_payload)
 
     async def _handle_ws(self, request: web.Request) -> web.StreamResponse:
         ws = web.WebSocketResponse(heartbeat=20)
