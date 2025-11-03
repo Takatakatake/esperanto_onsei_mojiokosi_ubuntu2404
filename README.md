@@ -196,6 +196,9 @@ DISCORD_BATCH_MAX_CHARS=350
 
 ### Linux クイックガイド
 
+> ※ 本リポジトリに同梱されているループバック補助スクリプトは Linux 向け（`scripts/setup_audio_loopback_linux.sh`）のみです。
+> 　macOS／Windows で利用する場合は、各 OS に合わせて手動でルーティングを調整してください。
+
 - **Linux (PipeWire/PulseAudio)**: `scripts/setup_audio_loopback_linux.sh` が `module-null-sink` を作成し、Monitor を既定入力に切り替えます。`run_transcriber.sh` や `python -m transcriber.cli --easy-start` から呼び出した場合は CLI 側で既定デバイスをスナップショットし、終了時に自動復元します。スクリプト単体で実行した場合は `scripts/reset_audio_defaults.sh` などで明示的に戻してください。`python -m transcriber.cli --diagnose-audio` で `pipewire` や `default` が候補に出るか確認してください。
 - 共通: まず `python -m transcriber.cli --check-environment` で依存関係・.env・認証ファイルをチェックし、続けて `--diagnose-audio` でルーティングを確認するとスムーズです。
 - ガイド付きセットアップを見たい場合は `python -m transcriber.cli --setup-wizard` を実行すると、必須ステップと推奨ツールが一覧で表示されます。

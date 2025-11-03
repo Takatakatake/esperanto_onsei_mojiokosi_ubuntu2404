@@ -195,6 +195,9 @@ scripts/test_translation.py "Bonvenon al nia kunsido."
 
 ### Linux quick notes
 
+> Note: This repository only includes the Linux helper (`scripts/setup_audio_loopback_linux.sh`).
+> Configure loopback routing manually if you are operating on macOS or Windows.
+
 - **Linux (PipeWire/PulseAudio)**: `scripts/setup_audio_loopback_linux.sh` provisions a null sink and switches the default source to its monitor. When invoked via `run_transcriber.sh` or `python -m transcriber.cli --easy-start`, the CLI snapshots the original defaults and restores them on shutdown; running the script by itself leaves the virtual sink active until you revert manually (e.g., `scripts/reset_audio_defaults.sh`). Confirm that `python -m transcriber.cli --diagnose-audio` lists `pipewire`/`default` as loopback candidates.
 - Start with `python -m transcriber.cli --check-environment` to ensure dependencies and configuration are ready, then run `python -m transcriber.cli --diagnose-audio` to confirm audio routing before joining a meeting.
 - Need a guided walkthrough? Run `python -m transcriber.cli --setup-wizard` to list the required steps and recommended tooling.
