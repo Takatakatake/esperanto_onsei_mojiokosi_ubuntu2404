@@ -9,13 +9,6 @@ __pycache__/
 # Local logs
 logs/
 
-# Credentials and secrets
-*.json
-.env
-.env.local
-*.key
-*.pem
-
 # OS/editor noise
 .DS_Store
 Thumbs.db

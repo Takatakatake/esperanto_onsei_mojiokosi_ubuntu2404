@@ -368,7 +368,7 @@ python -m pip install --upgrade pip setuptools wheel
 
 ## Appendix: Security and .env Handling
 
-- This repo tracks a masked `.env` to make setup easier. Replace placeholders with real values locally.
+- A working `.env` file ships with the repository to simplify reproducibility. Review and replace every value with environment-specific secrets before real use.
 - For production, do not track real secrets in `.env`. Prefer an untracked variant (e.g., `.env.local`) and add it to `.gitignore`.
 - Never commit or share real keys; rotate credentials regularly.
 
