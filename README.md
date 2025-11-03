@@ -48,6 +48,8 @@ pip install -r requirements.txt
 test -f .env || cp .env.example .env
 ```
 
+上記の手作業が不安な場合は、`./setup_venv311.sh`（または `bash scripts/setup_venv311.sh`）を実行すれば Python 3.11 の検出・仮想環境の作成・`requirements.txt` のインストールまで自動で案内してくれます。
+
 ### 超かんたん実行（初めての方向け）
 
 - **Linux**: ターミナルで `./easy_start.sh` または `bash scripts/easy_start.sh` を実行。必要なら `chmod +x easy_start.sh` で実行権限を付与してください。

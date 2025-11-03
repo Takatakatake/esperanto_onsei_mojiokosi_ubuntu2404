@@ -14,7 +14,3 @@ logs/
 Thumbs.db
 *.swp
 *.swo
-
-# Credentials and secrets
-*.json  # Exclude JSON credential files
-gen-lang-client-*.json

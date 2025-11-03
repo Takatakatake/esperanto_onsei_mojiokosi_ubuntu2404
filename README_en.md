@@ -47,6 +47,8 @@ pip install -r requirements.txt
 test -f .env || cp .env.example .env
 ```
 
+Prefer a guided setup? Run `./setup_venv311.sh` (or `bash scripts/setup_venv311.sh`) and the script will locate Python 3.11 (or newer), create `.venv311`, upgrade pip tooling, and install `requirements.txt` with friendly prompts.
+
 ### Ultra-simple launch (first-time friendly)
 
 - **Linux**: Run `./easy_start.sh` or `bash scripts/easy_start.sh`. If necessary, grant execute permission with `chmod +x easy_start.sh`.
