@@ -6,7 +6,7 @@ Realtime transcription pipeline tailored for Esperanto conversations on Zoom and
 The implementation follows the design principles captured in the proposal document:
 “エスペラント（Esperanto）会話を“常時・高精度・低遅延”に文字起こしするための実現案1.md”.
 
-- Speechmatics Realtime STT (official `eo` support, diarization, custom dictionary)
+- Speechmatics Realtime STT (official `eo` support, diarization)
 - Vosk offline backend as a zero-cost / air-gapped fallback
 - Zoom Closed Caption API injection for native on-screen subtitles
 - Pipeline abstraction ready for additional engines (e.g., Whisper streaming, Google STT)
@@ -18,7 +18,7 @@ Note:
 
 ---
 
-## 1. Prerequisites
+## Prerequisites
 
 - Python 3.10+ (tested on CPython 3.10/3.11)
 - Use Python 3.11 and create the virtual environment named `.venv311`.
@@ -33,7 +33,7 @@ Optional:
 
 ---
 
-## 0. Quickstart (from GitHub)
+## Quickstart (from GitHub)
 
 ```bash
 git clone git@github.com:Takatakatake/esperanto_onsei_mojiokosi.git
@@ -82,10 +82,10 @@ Open the Web UI at `http://127.0.0.1:8765` (set `WEB_UI_OPEN_BROWSER=true` to au
 
 ---
 
-## 2. Bootstrap
+## Bootstrap
 
 ```bash
-cd /media/yamada/SSD-PUTA1/CODEX作業用202510
+cd /path/to/esperanto_onsei_mojiokosi
 python3.11 -m venv .venv311
 source .venv311/bin/activate
 pip install --upgrade pip
@@ -145,7 +145,7 @@ DISCORD_BATCH_MAX_CHARS=350
 
 ---
 
-## 3. Usage
+## Usage
 
 List capture devices and verify routing:
 
@@ -193,7 +193,7 @@ scripts/test_translation.py "Bonvenon al nia kunsido."
 
 ### Linux quick notes
 
-- **Linux (PipeWire/PulseAudio)**: `scripts/setup_audio_loopback_linux.sh` provisions a null sink, routes its monitor as the default source, and restores the previous defaults on exit. Confirm that `python -m transcriber.cli --diagnose-audio` lists `pipewire`/`default` as loopback candidates.
+- **Linux (PipeWire/PulseAudio)**: `scripts/setup_audio_loopback_linux.sh` provisions a null sink and switches the default source to its monitor. When invoked via `run_transcriber.sh` or `python -m transcriber.cli --easy-start`, the CLI snapshots the original defaults and restores them on shutdown; running the script by itself leaves the virtual sink active until you revert manually (e.g., `scripts/reset_audio_defaults.sh`). Confirm that `python -m transcriber.cli --diagnose-audio` lists `pipewire`/`default` as loopback candidates.
 - Start with `python -m transcriber.cli --check-environment` to ensure dependencies and configuration are ready, then run `python -m transcriber.cli --diagnose-audio` to confirm audio routing before joining a meeting.
 - Need a guided walkthrough? Run `python -m transcriber.cli --setup-wizard` to list the required steps and recommended tooling.
 - To revert audio defaults at any time, run `bash scripts/reset_audio_defaults.sh` (Linux/PipeWire) and choose the devices you want.
@@ -214,7 +214,7 @@ Google Meet options:
 
 ---
 
-## 4. Architecture Overview
+## Architecture Overview
 
 - `transcriber/audio.py`: async capture of PCM16 16 kHz mono
 - `transcriber/asr/speechmatics_backend.py`: Realtime WebSocket client (Bearer JWT, parses partial/final JSON)
@@ -233,9 +233,9 @@ Anticipated extensions:
 
 ---
 
-## 5. Validation & Next Steps
+## Validation & Next Steps
 
-1) Validate Speechmatics handshake (`start` schema). Tune dictionary/`operating_point` as needed.  
+1) Validate the Speechmatics handshake (`StartRecognition` schema). The current build does not ship custom dictionary or `operating_point` parameters—extend `speechmatics_backend.py` if you need to send those options.  
 2) Dry-run with recorded audio; measure WER/diarization/latency.  
 3) Register frequent words in the Speechmatics Custom Dictionary; mirror vocabulary for Vosk post-processing if needed.  
 4) Validate the offline path with Vosk and compare WER/latency.  
@@ -249,13 +249,13 @@ For alternate capture paths (Recall.ai bots, Meet Media API wrappers, Whisper fa
 
 ---
 
-## 7. Recommended Launch Workflow
+## Recommended Launch Workflow
 
 Keep the Web UI on a fixed port (8765) and avoid “already in use” loops with the tiny launcher:
 
 ```bash
 install -Dm755 scripts/run_transcriber.sh ~/bin/run-transcriber.sh
-source /media/yamada/SSD-PUTA1/CODEX作業用202510/.venv311/bin/activate
+source /path/to/.venv311/bin/activate
 ~/bin/run-transcriber.sh              # defaults: backend=speechmatics, log-level=INFO
 ```
 
@@ -271,7 +271,7 @@ Prefer manual runs? Use the prep script once per run:
 
 ```bash
 install -Dm755 scripts/prep_webui.sh ~/bin/prep-webui.sh
-source /media/yamada/SSD-PUTA1/CODEX作業用202510/.venv311/bin/activate
+source /path/to/.venv311/bin/activate
 ~/bin/prep-webui.sh && python -m transcriber.cli --backend=speechmatics --log-level=INFO
 ```
 
@@ -292,7 +292,7 @@ Then restart as usual: `python -m transcriber.cli ...`.
 
 ---
 
-## 8. Audio Loopback Stability
+## Audio Loopback Stability
 
 PipeWire/WirePlumber occasionally revert the default input to a hardware mic. To keep Meet loopback working, and auto-heal if state files change, see `docs/audio_loopback.md`:
 
@@ -308,7 +308,7 @@ systemctl --user enable --now wp-force-monitor.service wp-force-monitor.path
 
 ---
 
-## 6. Audio Device Hot-Reload (Ubuntu/Linux)
+## Audio Device Hot-Reload (Ubuntu/Linux)
 
 Automatic detection of device changes and seamless reconnection to avoid pipeline interruptions.
 
