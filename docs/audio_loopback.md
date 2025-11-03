@@ -6,11 +6,20 @@
 
 ```bash
 source .venv311/bin/activate
+python -m transcriber.cli --check-environment
 python -m transcriber.cli --list-devices
+python -m transcriber.cli --diagnose-audio
+# ガイド付きの手順を確認したい場合は `python -m transcriber.cli --setup-wizard` も参照してください。
+# 既定デバイスが仮想のまま残った場合は `bash scripts/reset_audio_defaults.sh` で元に戻せます。
 ```
 
 `pipewire` (または `default`) の index を `.env` の `AUDIO_DEVICE_INDEX` に設定します。  
 本リポジトリでは `AUDIO_DEVICE_INDEX=6` に更新済みです。
+
+ハードが 48 kHz 固定の場合でも、`.env` の `AUDIO_DEVICE_SAMPLE_RATE=48000` と `AUDIO_SAMPLE_RATE=16000` を併用すれば自動的に 16 kHz へ変換されます。サンプル長は `AUDIO_CHUNK_DURATION_SECONDS`（推奨 0.1〜0.5 秒）で調整してください。
+
+ループバック自動設定を有効にしたまま `python -m transcriber.cli --diagnose-audio` を実行すると、  
+モニターデバイス候補・設定上の注意点が一覧で確認できます。
 
 ## 2. 既定サウンドデバイスの固定
 
@@ -18,13 +27,16 @@ python -m transcriber.cli --list-devices
 
 ```bash
 install -Dm755 scripts/wp-force-monitor.sh ~/bin/wp-force-monitor.sh
+install -Dm755 scripts/setup_audio_loopback_linux.sh ~/bin/setup-audio-loopback.sh
 ~/bin/wp-force-monitor.sh
+HEADPHONE_SINK=alsa_output.pci-0000_00_1f.3.analog-stereo ~/bin/setup-audio-loopback.sh
 ```
 
 このスクリプトは以下を強制します（SINK_NAME を未設定のままにするとシンクには触れません）。
 
 - 既定ソース: `alsa_output.pci-0000_00_1f.3.analog-stereo.monitor`
 - （任意）`SINK_NAME` を指定した場合のみ既定シンクも変更
+- パイプライン停止時には自動的に元の既定シンク／ソースへ戻るため、通常のデスクトップ再生に影響を残しません。
 
 ## 3. WirePlumber 状態監視の systemd 化
 

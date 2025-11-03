@@ -22,7 +22,7 @@ Note:
 
 - Python 3.10+ (tested on CPython 3.10/3.11)
 - Use Python 3.11 and create the virtual environment named `.venv311`.
-- Audio loopback from Zoom/Meet into the local machine (VB-Audio, VoiceMeeter, BlackHole, JACK)
+- Audio loopback from Zoom/Meet into the local machine (PipeWire, PulseAudio, JACK, etc.)
 - Speechmatics account with realtime entitlement and API key
 - Zoom host privileges to obtain the Closed Caption POST URL (or Recall.ai/Meeting SDK)
 
@@ -47,6 +47,13 @@ pip install -r requirements.txt
 test -f .env || cp .env.example .env
 ```
 
+### Ultra-simple launch (first-time friendly)
+
+- **Linux**: Run `./easy_start.sh` or `bash scripts/easy_start.sh`. If necessary, grant execute permission with `chmod +x easy_start.sh`.
+- Need to revert to your original microphone/speaker quickly? Run `bash scripts/reset_audio_defaults.sh` and pick the devices from the numbered list.
+
+Each helper activates `.venv311` when present and calls `python -m transcriber.cli --easy-start`, so you only answer a few prompts.
+
 Edit these fields (example):
 
 ```ini
@@ -54,6 +61,9 @@ SPEECHMATICS_API_KEY=****************************   # replace with your real key
 SPEECHMATICS_CONNECTION_URL=wss://<region>.rt.speechmatics.com/v2   # region base URL form (e.g. eu2 or us2)
 SPEECHMATICS_LANGUAGE=eo                                     # language code (e.g. eo). The actual connection will be to <base>/v2/<language> (e.g. wss://eu2.rt.speechmatics.com/v2/eo).
 AUDIO_DEVICE_INDEX=8                               # from --list-devices
+AUDIO_DEVICE_SAMPLE_RATE=48000                     # hardware sample rate (e.g. 48000/44100)
+AUDIO_CAPTURE_MODE=loopback                        # loopback / microphone / api / auto
+AUDIO_AUTO_SETUP_LOOPBACK=true                     # auto-provision virtual devices when supported
 WEB_UI_ENABLED=true
 TRANSLATION_ENABLED=true
 TRANSLATION_TARGETS=ja,ko
@@ -63,10 +73,12 @@ Then verify devices and start:
 
 ```bash
 python -m transcriber.cli --list-devices
+python -m transcriber.cli --diagnose-audio
 python -m transcriber.cli --log-level=INFO
 ```
 
 Open the Web UI at `http://127.0.0.1:8765` (set `WEB_UI_OPEN_BROWSER=true` to auto-open).
+`--diagnose-audio` summarises loopback candidates and configuration hints. On Linux you can provision virtual devices via `scripts/setup_audio_loopback_linux.sh`.
 
 ---
 
@@ -97,7 +109,16 @@ Optional overrides (you can leave these unset when using defaults):
 ```ini
 AUDIO_DEVICE_INDEX=8            # from --list-devices output
 AUDIO_SAMPLE_RATE=16000
+AUDIO_DEVICE_SAMPLE_RATE=48000
 AUDIO_CHUNK_DURATION_SECONDS=0.5
+AUDIO_CAPTURE_MODE=loopback
+AUDIO_AUTO_SETUP_LOOPBACK=true
+# AUDIO_LINUX_LOOPBACK_SINK=alsa_output.pci-0000_00_1f.3.analog-stereo
+AUDIO_LEVEL_MONITOR_ENABLED=false
+AUDIO_LEVEL_SILENCE_THRESHOLD_DBFS=-45.0
+AUDIO_LEVEL_SILENCE_DURATION_SECONDS=6.0
+AUDIO_LEVEL_CLIP_THRESHOLD_DBFS=-1.0
+AUDIO_LEVEL_CLIP_HOLD_SECONDS=2.0
 ZOOM_CC_MIN_POST_INTERVAL_SECONDS=1.0
 VOSK_MODEL_PATH=/absolute/path/to/vosk-model-small-eo-0.42
 WHISPER_MODEL_SIZE=medium
@@ -163,6 +184,20 @@ Translation smoke test (uses current `.env` settings):
 scripts/test_translation.py "Bonvenon al nia kunsido."
 ```
 
+### Audio tuning checklist
+
+- Set `AUDIO_DEVICE_SAMPLE_RATE` to the physical capture rate (for example 48000 Hz). The pipeline resamples to 16 kHz internally so Speechmatics/Vosk/Whisper stay stable even when only 44.1/48 kHz hardware is available.
+- Keep `AUDIO_CHUNK_DURATION_SECONDS` between 0.1 and 0.5 seconds. Shorter chunks reduce latency but increase CPU/network usage.
+- Enable `AUDIO_LEVEL_MONITOR_ENABLED=true` to receive warnings when the input remains below the silence threshold (default -45 dBFS for 6 seconds) or hits the clipping ceiling (default -1 dBFS for 2 seconds). Adjust the thresholds/durations with the matching `.env` variables.
+- On Linux, automatic loopback setup now snapshots the default sink/source before switching and restores them as soon as the pipeline stops, so desktop audio routing returns to its original state automatically.
+
+### Linux quick notes
+
+- **Linux (PipeWire/PulseAudio)**: `scripts/setup_audio_loopback_linux.sh` provisions a null sink, routes its monitor as the default source, and restores the previous defaults on exit. Confirm that `python -m transcriber.cli --diagnose-audio` lists `pipewire`/`default` as loopback candidates.
+- Start with `python -m transcriber.cli --check-environment` to ensure dependencies and configuration are ready, then run `python -m transcriber.cli --diagnose-audio` to confirm audio routing before joining a meeting.
+- Need a guided walkthrough? Run `python -m transcriber.cli --setup-wizard` to list the required steps and recommended tooling.
+- To revert audio defaults at any time, run `bash scripts/reset_audio_defaults.sh` (Linux/PipeWire) and choose the devices you want.
+
 Stop with `Ctrl+C` (graceful). Logs will show:
 - `Final:` lines when Speechmatics emits confirmed segments
 - Caption POST success/failure (watch for 401/403)
@@ -175,7 +210,7 @@ Zoom-specific steps:
 
 Google Meet options:
 - If the Meet Media API is available, consume the media stream and feed PCM into the same Speechmatics client.
-- Otherwise, route audio via OS loopback (PipeWire/BlackHole/VoiceMeeter, etc.).
+- Otherwise, route audio via OS loopback (PipeWire/PulseAudio/JACK, etc.).
 
 ---
 
@@ -320,12 +355,6 @@ sudo apt update
 sudo apt install -y build-essential libsndfile1-dev libportaudio2 portaudio19-dev ffmpeg
 ```
 
-- macOS (Homebrew):
-```bash
-brew install portaudio ffmpeg libsndfile
-```
-
-- Windows: If a prebuilt wheel for `sounddevice` is not available, Visual C++ Build Tools may be required. Install `ffmpeg` from https://ffmpeg.org or via `choco`/scoop.
 
 Before installing Python dependencies, it is recommended to upgrade pip and wheel:
 ```bash
