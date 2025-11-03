@@ -23,6 +23,7 @@ from .asr import (
     WhisperStreamingBackend,
 )
 from .audio import AudioCaptureError, AudioChunkStream
+from .audio_setup import AudioEnvironmentError, AudioEnvironmentManager
 from .config import BackendChoice, Settings, load_settings
 from .zoom_caption import ZoomCaptionPublisher
 from .display.webui import CaptionWebUI
@@ -157,6 +158,7 @@ class TranscriptionPipeline:
             if backend_override
             else self.settings.backend
         )
+        self._audio_env = AudioEnvironmentManager(self.settings.audio)
         self._audio_stream = AudioChunkStream(
             self.settings.audio,
             check_interval=self.settings.audio.device_check_interval,
@@ -207,6 +209,13 @@ class TranscriptionPipeline:
         self._running = True
         logging.info("Starting transcription pipeline with backend=%s.", self.backend_choice.value)
 
+        try:
+            self._audio_env.prepare()
+        except AudioEnvironmentError as exc:
+            logging.error("Audio environment preparation failed: %s", exc)
+            self._running = False
+            raise
+
         backend = self._create_backend()
         try:
             with self._transcript_logger:
@@ -255,6 +264,7 @@ class TranscriptionPipeline:
             await self._discord_batcher.close()
             await self._discord_notifier.close()
             await self._translation_service.close()
+            self._audio_env.cleanup()
             self._running = False
             logging.info("Transcription pipeline stopped.")
 

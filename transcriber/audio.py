@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import audioop
 import logging
+import math
 import queue
 import time
 from contextlib import asynccontextmanager
@@ -38,6 +40,39 @@ class AudioChunkStream:
         self._needs_downmix = self.config.channels > 1
         self._downmix_warning_logged = False
         self._fatal_error: Optional[AudioCaptureError] = None
+        self._target_sample_rate = self.config.sample_rate
+        self._device_sample_rate = self.config.device_sample_rate or self.config.sample_rate
+        if self.config.device_sample_rate is None:
+            logging.info(
+                "AUDIO_DEVICE_SAMPLE_RATE not provided; using %s Hz for both device and engine.",
+                self._target_sample_rate,
+            )
+        self._resample_needed = self._device_sample_rate != self._target_sample_rate
+        self._resample_state: Optional[tuple[int, int]] = None
+        self._resample_buffer = bytearray()
+        self._target_frame_count = max(
+            1, int(round(self._target_sample_rate * self.config.chunk_duration_seconds))
+        )
+        self._device_frame_count = max(
+            1, int(round(self._device_sample_rate * self.config.chunk_duration_seconds))
+        )
+        self._target_chunk_bytes = self._target_frame_count * 2  # mono int16 frames
+        self._device_chunk_seconds = self._device_frame_count / self._device_sample_rate
+        self._chunk_timeout = max(5.0, self.config.chunk_duration_seconds * 4.0)
+        self._level_monitor_enabled = self.config.level_monitor_enabled
+        self._silence_threshold_dbfs = self.config.level_silence_threshold_dbfs
+        self._silence_duration_required = self.config.level_silence_duration_seconds
+        self._clip_threshold_dbfs = self.config.level_clip_threshold_dbfs
+        self._clip_hold_seconds = self.config.level_clip_hold_seconds
+        if self._clip_threshold_dbfs > 0.0:
+            self._clip_threshold_dbfs = 0.0
+        if self._silence_threshold_dbfs > -1.0:
+            self._silence_threshold_dbfs = -1.0
+        self._silence_accumulator = 0.0
+        self._clip_accumulator = 0.0
+        self._last_silence_warning_ts = 0.0
+        self._last_clip_warning_ts = 0.0
+        self._level_warning_cooldown = 15.0
 
     def _get_default_input_device(self) -> Optional[int]:
         """Best-effort lookup of the current system default input device."""
@@ -77,9 +112,6 @@ class AudioChunkStream:
                 # Signal that stream may need restart
                 self._stream_error.set()
 
-        # Update last chunk timestamp
-        self._last_chunk_time = time.time()
-
         chunk = bytes(indata)
         if self._needs_downmix:
             if not self._downmix_warning_logged:
@@ -90,16 +122,33 @@ class AudioChunkStream:
                 self._downmix_warning_logged = True
             chunk = self._downmix_to_mono(chunk)
 
-        try:
-            self._queue.put_nowait(chunk)
-        except queue.Full:
-            # Drop oldest chunk to prevent runaway latency.
+        data = chunk
+        if self._resample_needed:
             try:
-                _ = self._queue.get_nowait()
-                self._queue.put_nowait(chunk)
-                logging.debug("Dropped one audio chunk to keep up with realtime processing.")
-            except queue.Empty:
-                logging.debug("Audio buffer overflow handled, but queue empty when trimming.")
+                data, self._resample_state = audioop.ratecv(
+                    chunk,
+                    2,
+                    1,
+                    self._device_sample_rate,
+                    self._target_sample_rate,
+                    self._resample_state,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logging.error("Audio resampling failed: %s", exc)
+                self._stream_error.set()
+                return
+
+        if not self._resample_needed and len(data) == self._target_chunk_bytes:
+            self._publish_chunk(data)
+            return
+
+        if data:
+            self._resample_buffer.extend(data)
+
+        while len(self._resample_buffer) >= self._target_chunk_bytes:
+            ready = bytes(self._resample_buffer[: self._target_chunk_bytes])
+            del self._resample_buffer[: self._target_chunk_bytes]
+            self._publish_chunk(ready)
 
     def _downmix_to_mono(self, data: bytes) -> bytes:
         """Average multi-channel int16 PCM data down to mono."""
@@ -123,13 +172,91 @@ class AudioChunkStream:
             mono[frame] = int(acc / channels)
         return mono.tobytes()
 
+    def _publish_chunk(self, chunk: bytes) -> None:
+        if not chunk:
+            return
+
+        duration = len(chunk) / (2 * self._target_sample_rate)
+        self._last_chunk_time = time.time()
+
+        if self._level_monitor_enabled:
+            self._analyse_levels(chunk, duration)
+
+        try:
+            self._queue.put_nowait(chunk)
+        except queue.Full:
+            try:
+                _ = self._queue.get_nowait()
+                self._queue.put_nowait(chunk)
+                logging.debug("Dropped one audio chunk to keep up with realtime processing.")
+            except queue.Empty:
+                logging.debug("Audio buffer overflow handled, but queue empty when trimming.")
+
+    def _analyse_levels(self, chunk: bytes, duration: float) -> None:
+        """Track RMS/peak levels and log anomalies."""
+
+        # RMS in dBFS
+        rms = audioop.rms(chunk, 2)
+        if rms <= 0:
+            level_db = float("-inf")
+        else:
+            level_db = 20.0 * math.log10(rms / 32767.0)
+
+        now = time.time()
+        if level_db <= self._silence_threshold_dbfs:
+            self._silence_accumulator += duration
+            if (
+                self._silence_accumulator >= self._silence_duration_required
+                and now - self._last_silence_warning_ts >= self._level_warning_cooldown
+            ):
+                logging.warning(
+                    "Input audio level below %.1f dBFS for %.1f seconds; "
+                    "verify loopback routing or microphone gain.",
+                    self._silence_threshold_dbfs,
+                    self._silence_accumulator,
+                )
+                self._last_silence_warning_ts = now
+                self._silence_accumulator = 0.0
+        else:
+            self._silence_accumulator = 0.0
+
+        peak = audioop.max(chunk, 2)
+        if peak <= 0:
+            peak_db = float("-inf")
+        else:
+            peak_db = 20.0 * math.log10(peak / 32767.0)
+
+        if peak_db >= self._clip_threshold_dbfs:
+            self._clip_accumulator += duration
+            if (
+                self._clip_accumulator >= self._clip_hold_seconds
+                and now - self._last_clip_warning_ts >= self._level_warning_cooldown
+            ):
+                logging.warning(
+                    "Input audio peak at %.1f dBFS for %.1f seconds; "
+                    "attenuate the source to prevent clipping.",
+                    peak_db,
+                    self._clip_accumulator,
+                )
+                self._last_clip_warning_ts = now
+                self._clip_accumulator = 0.0
+        else:
+            self._clip_accumulator = 0.0
+    def _reset_resampler(self) -> None:
+        self._resample_state = None
+        self._resample_buffer.clear()
+
+    def _reset_level_state(self) -> None:
+        self._silence_accumulator = 0.0
+        self._clip_accumulator = 0.0
+
     def _device_label(self, device: Optional[int]) -> str:
         """Human readable label for logging."""
         if device is None:
             return "system default input"
         return f"device index {device}"
 
-    def _open_stream(self, frames_per_chunk: int, device: Optional[int]) -> None:
+    def _open_stream(self, device: Optional[int]) -> None:
         """Instantiate and start the RawInputStream for a specific device."""
         device_info = None
         if device is not None:
@@ -143,14 +270,15 @@ class AudioChunkStream:
         device_name = device_info.get("name") if device_info else "default"
         logging.info("Starting audio stream on %s (%s)", device_name, self._device_label(device))
 
+        blocksize = (
+            self.config.blocksize if self.config.blocksize is not None else self._device_frame_count
+        )
         stream = sd.RawInputStream(
-            samplerate=self.config.sample_rate,
+            samplerate=self._device_sample_rate,
             channels=self.config.channels,
             dtype="int16",
             callback=self._callback,
-            blocksize=(
-                frames_per_chunk if self.config.blocksize is None else self.config.blocksize
-            ),
+            blocksize=blocksize,
             device=device,
         )
         try:
@@ -167,8 +295,7 @@ class AudioChunkStream:
 
     def _start_stream(self, device: Optional[int]) -> None:
         """Start the audio stream with the specified device."""
-        frames_per_chunk = int(self.config.sample_rate * self.config.chunk_duration_seconds)
-        if frames_per_chunk <= 0:
+        if self._device_frame_count <= 0 or self._target_frame_count <= 0:
             raise AudioCaptureError("Chunk duration and sample rate produce zero frames.")
 
         if self._stream is not None:
@@ -177,6 +304,9 @@ class AudioChunkStream:
                 self._stream.close()
             except Exception as exc:
                 logging.debug("Error closing old stream: %s", exc)
+
+        self._reset_resampler()
+        self._reset_level_state()
 
         attempt_devices: List[Optional[int]] = []
 
@@ -196,7 +326,20 @@ class AudioChunkStream:
         last_exc: Optional[Exception] = None
         for candidate in attempt_devices:
             try:
-                self._open_stream(frames_per_chunk, candidate)
+                self._open_stream(candidate)
+                if self._resample_needed:
+                    logging.info(
+                        "Resampling audio from %s Hz -> %s Hz (chunk %.3fs).",
+                        self._device_sample_rate,
+                        self._target_sample_rate,
+                        self.config.chunk_duration_seconds,
+                    )
+                elif abs(self._device_chunk_seconds - self.config.chunk_duration_seconds) > 0.01:
+                    logging.debug(
+                        "Device chunk duration %.4fs differs from target %.4fs; buffering to compensate.",
+                        self._device_chunk_seconds,
+                        self.config.chunk_duration_seconds,
+                    )
                 return
             except Exception as exc:
                 last_exc = exc
@@ -315,6 +458,7 @@ class AudioChunkStream:
             return
         self._fatal_error = error
         self._stopped.set()
+        self._reset_resampler()
 
         if self._stream is not None:
             try:
