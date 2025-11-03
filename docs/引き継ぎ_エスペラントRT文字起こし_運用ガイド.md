@@ -62,16 +62,10 @@ python -m transcriber.cli --log-level=INFO
   ```
 
 2) 音声ルーティング
-- OS に応じた仮想オーディオを準備（例）
-  - Linux: PipeWire/PulseAudio の loopback
-  - Windows: VB-Audio / VoiceMeeter
-  - macOS: BlackHole
-- Meet/Zoom の出力を仮想入力へループバック。`--list-devices` でデバイス名を確認し、`.env` の `AUDIO_DEVICE_INDEX` に設定。
+- Linux では PipeWire/PulseAudio の loopback を利用し、Meet/Zoom の出力を仮想入力へルーティングします。`--list-devices` でデバイス名を確認し、`.env` の `AUDIO_DEVICE_INDEX` に設定してください。
 
-補足（OS別の一例）
+補足
 - Linux（PipeWire）：`pw-loopback` を使い、アプリ出力→ループバック→デフォルト入力を接続。
-- Windows：VoiceMeeter Banana で Zoom/ブラウザ出力を仮想入力へルーティングし、同時にスピーカーへモニタ。
-- macOS：BlackHole（2ch）と複合デバイスを作成し、会議アプリ出力に指定。
 
 3) Speechmatics の準備
 - Portal で Realtime が有効であることを確認し、**長期 API キー**を取得（キー文字列は rt- で始まらない場合もある）。
@@ -136,20 +130,13 @@ Web UI を共有するだけで良い場合は Webhook を省略可能。Webhook
 
 ## システム依存パッケージ（補足）
 
-本プロジェクトは Python パッケージの他に PortAudio / libsndfile / ffmpeg 等の OS レベルの依存が必要です。代表的なコマンド例を示します（利用する OS に合わせて調整してください）。
+本プロジェクトは Python パッケージの他に PortAudio / libsndfile / ffmpeg 等の OS レベルの依存が必要です。代表的なコマンド例（Linux 向け）を示します。その他プラットフォーム向けのメモは `fuyou/PLATFORM_GUIDES.md` に移動しました。
 
 Debian/Ubuntu の例:
 ```bash
 sudo apt update
 sudo apt install -y build-essential libsndfile1-dev libportaudio2 portaudio19-dev ffmpeg
 ```
-
-macOS (Homebrew):
-```bash
-brew install portaudio ffmpeg libsndfile
-```
-
-Windows: `sounddevice` のビルド済み wheel がない環境では Visual C++ Build Tools が必要になる場合があります。`ffmpeg` は https://ffmpeg.org から入手するか、choco/scoop を利用してください。
 
 また、Python パッケージをインストールする前に pip 等を最新化しておくことを推奨します:
 ```bash
@@ -158,7 +145,6 @@ python -m pip install --upgrade pip setuptools wheel
 
 注意
 - `.env` と `logs/` は `.gitignore` 済み（機微情報・不要ファイルをコミットしない）。
-- Windows でスクリプトを実行する場合は Git Bash か WSL を推奨（PowerShell 用に読み替える場合は `source` 相当のコマンドを使用）。
 
 ### 緊急手順: 秘密情報がリポジトリ内で発見された場合（簡易ガイド）
 

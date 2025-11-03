@@ -3,12 +3,22 @@
 from __future__ import annotations
 
 import os
+import logging
 from enum import Enum
 from functools import lru_cache
 from typing import Dict, List, Optional
 
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field, ValidationError
+
+
+class AudioCaptureMode(str, Enum):
+    """Capture routing strategy."""
+
+    AUTO = "auto"
+    LOOPBACK = "loopback"
+    MICROPHONE = "microphone"
+    API = "api"
 
 
 class AudioInputConfig(BaseModel):
@@ -19,6 +29,12 @@ class AudioInputConfig(BaseModel):
         description="Input device index; None selects system default.",
     )
     sample_rate: int = Field(default=16_000, ge=8_000, le=96_000)
+    device_sample_rate: Optional[int] = Field(
+        default=None,
+        ge=8_000,
+        le=192_000,
+        description="Hardware capture rate; defaults to sample_rate when unset.",
+    )
     channels: int = Field(default=1, ge=1, le=2)
     chunk_duration_seconds: float = Field(default=0.5, gt=0, le=5.0)
     blocksize: Optional[int] = Field(
@@ -30,6 +46,50 @@ class AudioInputConfig(BaseModel):
         ge=0.5,
         le=10.0,
         description="Interval in seconds to check for audio device changes.",
+    )
+    mode: AudioCaptureMode = Field(
+        default=AudioCaptureMode.LOOPBACK,
+        description="Capture strategy: loopback, microphone, api, or auto-selection.",
+    )
+    auto_setup_loopback: bool = Field(
+        default=True,
+        description="Attempt to auto-configure loopback routing when supported.",
+    )
+    linux_loopback_sink: Optional[str] = Field(
+        default=None,
+        description="Preferred PulseAudio/PipeWire sink name for loopback routing.",
+    )
+    windows_loopback_device: Optional[str] = Field(
+        default=None,
+        description="Preferred Windows loopback device name (e.g., 'CABLE Output (VB-Audio)').",
+    )
+    mac_loopback_device: Optional[str] = Field(
+        default=None,
+        description="Preferred macOS loopback device name (e.g., 'BlackHole 2ch').",
+    )
+    level_monitor_enabled: bool = Field(
+        default=False,
+        description="Emit warnings when input level is too low/high.",
+    )
+    level_silence_threshold_dbfs: float = Field(
+        default=-45.0,
+        description="RMS threshold in dBFS below which audio is considered silent.",
+    )
+    level_silence_duration_seconds: float = Field(
+        default=6.0,
+        ge=1.0,
+        le=60.0,
+        description="Duration of continuous silence before logging a warning.",
+    )
+    level_clip_threshold_dbfs: float = Field(
+        default=-1.0,
+        description="Peak level in dBFS beyond which audio is considered clipped.",
+    )
+    level_clip_hold_seconds: float = Field(
+        default=2.0,
+        ge=0.5,
+        le=30.0,
+        description="Duration of sustained clipping before logging a warning.",
     )
 
 
@@ -249,6 +309,26 @@ def load_settings() -> Settings:
             default_visibility=translation_visibility,
         )
 
+        audio_mode_value = env.get(
+            "AUDIO_CAPTURE_MODE", AudioCaptureMode.LOOPBACK.value
+        ).lower()
+        try:
+            audio_mode = AudioCaptureMode(audio_mode_value)
+        except ValueError as exc:
+            raise RuntimeError(
+                f"Unsupported AUDIO_CAPTURE_MODE value: {audio_mode_value}"
+            ) from exc
+
+        audio_auto_setup = (
+            env.get("AUDIO_AUTO_SETUP_LOOPBACK", "true").lower() in {"1", "true", "yes"}
+        )
+
+        if "AUDIO_DEVICE_SAMPLE_RATE" not in env:
+            logging.debug(
+                "AUDIO_DEVICE_SAMPLE_RATE not set; assuming hardware sample rate equals AUDIO_SAMPLE_RATE (%s Hz).",
+                env.get("AUDIO_SAMPLE_RATE", "16000"),
+            )
+
         settings = Settings(
             backend=backend,
             speechmatics=speechmatics_cfg,
@@ -261,6 +341,11 @@ def load_settings() -> Settings:
                     else None
                 ),
                 sample_rate=int(env.get("AUDIO_SAMPLE_RATE", "16000")),
+                device_sample_rate=(
+                    int(env["AUDIO_DEVICE_SAMPLE_RATE"])
+                    if "AUDIO_DEVICE_SAMPLE_RATE" in env
+                    else None
+                ),
                 channels=int(env.get("AUDIO_CHANNELS", "1")),
                 chunk_duration_seconds=float(env.get("AUDIO_CHUNK_DURATION_SECONDS", "0.5")),
                 blocksize=(
@@ -269,6 +354,25 @@ def load_settings() -> Settings:
                     else None
                 ),
                 device_check_interval=float(env.get("AUDIO_DEVICE_CHECK_INTERVAL", "2.0")),
+                mode=audio_mode,
+                auto_setup_loopback=audio_auto_setup,
+                linux_loopback_sink=env.get("AUDIO_LINUX_LOOPBACK_SINK"),
+                windows_loopback_device=env.get("AUDIO_WINDOWS_LOOPBACK_DEVICE"),
+                mac_loopback_device=env.get("AUDIO_MAC_LOOPBACK_DEVICE"),
+                level_monitor_enabled=env.get("AUDIO_LEVEL_MONITOR_ENABLED", "false").lower()
+                in {"1", "true", "yes"},
+                level_silence_threshold_dbfs=float(
+                    env.get("AUDIO_LEVEL_SILENCE_THRESHOLD_DBFS", "-45.0")
+                ),
+                level_silence_duration_seconds=float(
+                    env.get("AUDIO_LEVEL_SILENCE_DURATION_SECONDS", "6.0")
+                ),
+                level_clip_threshold_dbfs=float(
+                    env.get("AUDIO_LEVEL_CLIP_THRESHOLD_DBFS", "-1.0")
+                ),
+                level_clip_hold_seconds=float(
+                    env.get("AUDIO_LEVEL_CLIP_HOLD_SECONDS", "2.0")
+                ),
             ),
             zoom=ZoomCaptionConfig(
                 caption_post_url=env.get("ZOOM_CC_POST_URL"),

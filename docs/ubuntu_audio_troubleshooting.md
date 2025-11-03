@@ -4,6 +4,12 @@
 
 Ubuntuのシステム設定で音声出力デバイスを切り替えると、文字起こしアプリケーションが音声を受信できなくなる問題が発生することがあります。
 
+事前チェックとして `python -m transcriber.cli --check-environment` を実行し依存関係と `.env` を確認し、続けて `python -m transcriber.cli --diagnose-audio` でルーティング状態を把握しておくと、トラブルシューティングが容易になります。
+
+初めて利用する場合は リポジトリ直下の `./easy_start.sh`（または `python -m transcriber.cli --easy-start`）を実行すると、環境チェック → 音声診断 → 起動まで順に案内されます。
+
+仮想デバイスが既定のまま残ってしまった場合は `bash scripts/reset_audio_defaults.sh` を実行し、元に戻したい出力／入力を番号で選び直してください。
+
 ## 実装された対策
 
 このアプリケーションには以下の自動復旧機能が実装されています：
@@ -86,6 +92,8 @@ echo "load-module module-loopback latency_msec=1" >> ~/.config/pulse/default.pa
 ```bash
 # 特定のデバイスインデックスを指定（デバイスリストで確認）
 AUDIO_DEVICE_INDEX=8
+# 物理マイクのみを使う場合:
+# AUDIO_CAPTURE_MODE=microphone
 ```
 
 3. **デバイスインデックスの確認方法**
@@ -180,9 +188,11 @@ Audio stream reconnected after timeout
 
 複数の音声デバイスがある環境で、特定のデバイスだけを使用したい場合：
 
-1. デバイスリストを確認：
+1. デバイス状態を診断：
 ```bash
-python3 -c "import sounddevice as sd; print(sd.query_devices())"
+python -m transcriber.cli --diagnose-audio
+# もしくは従来通り一覧だけを確認する場合:
+python -m transcriber.cli --list-devices
 ```
 
 2. `.env`で指定：
@@ -191,6 +201,8 @@ AUDIO_DEVICE_INDEX=8  # 使用したいデバイスのインデックス
 ```
 
 この設定を行うと、自動デバイス切り替えは無効になり、指定したデバイスに固定されます。
+
+あわせて `AUDIO_DEVICE_SAMPLE_RATE` にハード実レート（例: 48000）を指定すると、内部で 16 kHz へ自動変換されます。`AUDIO_LEVEL_MONITOR_ENABLED=true` を有効化すると、無音状態やクリッピングが継続した際にログへ警告が記録され、ルーティングミスや過大入力を検知しやすくなります。
 
 ### PipeWireを使用している場合
 

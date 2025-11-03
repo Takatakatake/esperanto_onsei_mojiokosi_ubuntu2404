@@ -21,7 +21,7 @@ Zoom や Google Meet でのエスペラント会話を、低遅延でリアル�
 
  - Python 3.10 以上（CPython 3.10/3.11 で検証）
 - Python 3.11 の仮想環境を `.venv311` という名前で作成して利用してください。
-- 会議アプリの音声を PC 内へループバックする仕組み（VB-Audio/VoiceMeeter/BlackHole/JACK など）
+- 会議アプリの音声を PC 内へループバックする仕組み（PipeWire/PulseAudio/JACK など）
 - Speechmatics アカウント（Realtime の利用権限と API キー）
 - Zoom で CC（字幕）URL を取得できるホスト権限（または Recall.ai/Meeting SDK 等でメディア取得）
 
@@ -48,6 +48,13 @@ pip install -r requirements.txt
 test -f .env || cp .env.example .env
 ```
 
+### 超かんたん実行（初めての方向け）
+
+- **Linux**: ターミナルで `./easy_start.sh` または `bash scripts/easy_start.sh` を実行。必要なら `chmod +x easy_start.sh` で実行権限を付与してください。
+- マイク／スピーカーが仮想デバイスのまま残った場合は `bash scripts/reset_audio_defaults.sh` を実行すれば元に戻せます（候補を番号で選ぶだけです）。
+
+※ 各スクリプトは `.venv311` があれば自動で有効化し、`python -m transcriber.cli --easy-start` を呼び出します。対話型の質問に従うだけでセットアップできます。
+
 `.env` の主な編集ポイント（例）:
 
 ```ini
@@ -55,6 +62,9 @@ SPEECHMATICS_API_KEY=****************************   # 本物のキーに置換
 SPEECHMATICS_CONNECTION_URL=wss://<region>.rt.speechmatics.com/v2   # region base URL の形式。例: eu2 または us2
 SPEECHMATICS_LANGUAGE=eo                                     # 言語コード（例: eo）。実際の接続先は <base>/v2/<language> の形式になります（例: wss://eu2.rt.speechmatics.com/v2/eo）。
 AUDIO_DEVICE_INDEX=8                               # --list-devices の番号
+AUDIO_DEVICE_SAMPLE_RATE=48000                     # ハードウェア側の実レート（例: 48000/44100）
+AUDIO_CAPTURE_MODE=loopback                        # loopback / microphone / api / auto
+AUDIO_AUTO_SETUP_LOOPBACK=true                     # サポートされる OS では仮想ループバックを自動設定
 WEB_UI_ENABLED=true
 TRANSLATION_ENABLED=true
 TRANSLATION_TARGETS=ja,ko
@@ -64,10 +74,13 @@ TRANSLATION_TARGETS=ja,ko
 
 ```bash
 python -m transcriber.cli --list-devices
+python -m transcriber.cli --diagnose-audio
 python -m transcriber.cli --log-level=INFO
 ```
 
 Web UI は `http://127.0.0.1:8765` で開けます（`.env` の `WEB_UI_OPEN_BROWSER=true` で自動起動）。
+`--diagnose-audio` は現在の OS・ループバック候補・設定ミスをまとめて表示します。
+Linux では `scripts/setup_audio_loopback_linux.sh` で仮想デバイスを整備できます。
 
 ---
 
@@ -98,7 +111,16 @@ ZOOM_CC_POST_URL=https://wmcc.zoom.us/closedcaption?...  # ホストが提供す
 ```ini
 AUDIO_DEVICE_INDEX=8            # --list-devices の番号
 AUDIO_SAMPLE_RATE=16000
+AUDIO_DEVICE_SAMPLE_RATE=48000
 AUDIO_CHUNK_DURATION_SECONDS=0.5
+AUDIO_CAPTURE_MODE=loopback
+AUDIO_AUTO_SETUP_LOOPBACK=true
+# AUDIO_LINUX_LOOPBACK_SINK=alsa_output.pci-0000_00_1f.3.analog-stereo
+AUDIO_LEVEL_MONITOR_ENABLED=false
+AUDIO_LEVEL_SILENCE_THRESHOLD_DBFS=-45.0
+AUDIO_LEVEL_SILENCE_DURATION_SECONDS=6.0
+AUDIO_LEVEL_CLIP_THRESHOLD_DBFS=-1.0
+AUDIO_LEVEL_CLIP_HOLD_SECONDS=2.0
 ZOOM_CC_MIN_POST_INTERVAL_SECONDS=1.0
 VOSK_MODEL_PATH=/absolute/path/to/vosk-model-small-eo-0.42
 WHISPER_MODEL_SIZE=medium
@@ -163,7 +185,22 @@ DISCORD_BATCH_MAX_CHARS=350
   scripts/test_translation.py "Bonvenon al nia kunsido."
   ```
 
-停止は `Ctrl+C`。ログには以下が出ます:
+### 音声入力のチューニング
+
+- `AUDIO_DEVICE_SAMPLE_RATE` にハードウェア実レート（例: 48000 Hz）を設定すると、内部で 16 kHz へ自動リサンプリングして Speechmatics/Vosk/Whisper の精度を安定させます。デバイスが 44.1 kHz 固定でもそのまま利用可能です。
+- `AUDIO_CHUNK_DURATION_SECONDS` は 0.1〜0.5 秒が推奨です。細かくするほど低遅延になりますが、CPU 負荷とネットワーク帯域が増えます。
+- `AUDIO_LEVEL_MONITOR_ENABLED=true` で入力レベル監視を有効化すると、一定時間無音（デフォルト -45 dBFS 以下が 6 秒）やクリッピングに達した場合に警告ログを出力します。閾値や検知時間は対応する `.env` 変数で微調整できます。
+- Linux で自動ループバックを有効にした場合、パイプライン終了時に既定の入出力デバイスを元に戻します。長時間の録音後でもシステムのサウンド設定が汚れません。
+
+### Linux クイックガイド
+
+- **Linux (PipeWire/PulseAudio)**: `scripts/setup_audio_loopback_linux.sh` が `module-null-sink` を作成し、Monitor を既定入力に切り替え、終了時には元に戻します。`python -m transcriber.cli --diagnose-audio` で `pipewire` や `default` が候補に出るか確認してください。
+- 共通: まず `python -m transcriber.cli --check-environment` で依存関係・.env・認証ファイルをチェックし、続けて `--diagnose-audio` でルーティングを確認するとスムーズです。
+- ガイド付きセットアップを見たい場合は `python -m transcriber.cli --setup-wizard` を実行すると、必須ステップと推奨ツールが一覧で表示されます。
+- マイクやスピーカーを即座に復旧したいときは `scripts/reset_audio_defaults.sh` を実行してください。
+
+-停止は `Ctrl+C`。`Ctrl+Z`（ジョブの一時停止）は安全のため自動的に「終了リクエスト」に読み替えられ、ループバック設定を元に戻して停止します。旧バージョンを利用していて `Ctrl+Z` で停止してしまった場合は `fg` → `Ctrl+C` で再開・終了してください。
+-ログには以下が出ます:
 - `Final:` 行（Speechmatics が確定セグメントを出したタイミング）
 - Zoom への POST 成否（401/403 はトークン期限切れや会議未準備の可能性）
 - Transcript ログを有効化している場合は、確定ごとにタイムスタンプ付きで追記
@@ -175,7 +212,7 @@ Zoom 固有の手順:
 
 Google Meet の選択肢:
 - Meet Media API（プレビュー）が使える場合は、そのストリームを PCM に変換して同じ Speechmatics クライアントに供給
-- 現状は OS の仮想ループバック（PipeWire/BlackHole/VoiceMeeter 等）で安定運用可能
+- 現状は OS の仮想ループバック（PipeWire/PulseAudio/JACK 等）で安定運用可能
 
 ---
 
@@ -330,12 +367,6 @@ sudo apt update
 sudo apt install -y build-essential libsndfile1-dev libportaudio2 portaudio19-dev ffmpeg
 ```
 
-- macOS（Homebrew）:
-```bash
-brew install portaudio ffmpeg libsndfile
-```
-
-- Windows: `sounddevice` のビルド済み wheel がない場合は Visual C++ ビルドツールが必要になることがあります。`ffmpeg` は https://ffmpeg.org から入手するか `choco`/scoop で導入してください。
 
 また、インストール前に Python のインストーラ周りを最新化しておくとトラブルが少ないため、以下を実行することを推奨します:
 ```bash
