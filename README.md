@@ -5,7 +5,7 @@ English version: see `README_en.md`
 Zoom や Google Meet でのエスペラント会話を、低遅延でリアルタイム文字起こしするためのパイプライン実装です。
 本リポジトリの設計は「エスペラント（Esperanto）会話を“常時・高精度・低遅延”に文字起こしするための実現案1.md」に基づいています。
 
-- Speechmatics Realtime STT（エスペラント `eo` 対応、話者分離、カスタム辞書）
+- Speechmatics Realtime STT（エスペラント `eo` 対応、話者分離）
 - Vosk オフラインバックエンド（ゼロコスト/隔離環境のバックアップ）
 - Zoom Closed Caption API への送出（Zoom 画面にネイティブ字幕を表示）
 - Whisper/Google STT 等の追加エンジンにも拡張しやすいパイプライン設計
@@ -17,7 +17,7 @@ Zoom や Google Meet でのエスペラント会話を、低遅延でリアル�
 
 ---
 
-## 1. 前提条件（Prerequisites）
+## 前提条件（Prerequisites）
 
  - Python 3.10 以上（CPython 3.10/3.11 で検証）
 - Python 3.11 の仮想環境を `.venv311` という名前で作成して利用してください。
@@ -32,7 +32,7 @@ Zoom や Google Meet でのエスペラント会話を、低遅延でリアル�
 
 ---
 
-## 0. 日本語クイックスタート（GitHub から）
+## 日本語クイックスタート（GitHub から）
 
 ```bash
 git clone git@github.com:Takatakatake/esperanto_onsei_mojiokosi.git
@@ -47,6 +47,8 @@ pip install -r requirements.txt
 # 無い場合は例からコピーして編集:
 test -f .env || cp .env.example .env
 ```
+
+上記の手作業が不安な場合は、`./setup_venv311.sh`（または `bash scripts/setup_venv311.sh`）を実行すれば Python 3.11 の検出・仮想環境の作成・`requirements.txt` のインストールまで自動で案内してくれます。
 
 ### 超かんたん実行（初めての方向け）
 
@@ -84,10 +86,10 @@ Linux では `scripts/setup_audio_loopback_linux.sh` で仮想デバイスを整
 
 ---
 
-## 2. セットアップ（Bootstrap）
+## セットアップ（Bootstrap）
 
 ```bash
-cd /media/yamada/SSD-PUTA1/CODEX作業用202510
+cd /path/to/esperanto_onsei_mojiokosi
 python3.11 -m venv .venv311
 source .venv311/bin/activate
 pip install --upgrade pip
@@ -150,7 +152,7 @@ DISCORD_BATCH_MAX_CHARS=350
 
 ---
 
-## 3. 使い方（Usage）
+## 使い方（Usage）
 
 - 入力デバイスの一覧とルーティング確認:
   ```bash
@@ -194,7 +196,10 @@ DISCORD_BATCH_MAX_CHARS=350
 
 ### Linux クイックガイド
 
-- **Linux (PipeWire/PulseAudio)**: `scripts/setup_audio_loopback_linux.sh` が `module-null-sink` を作成し、Monitor を既定入力に切り替え、終了時には元に戻します。`python -m transcriber.cli --diagnose-audio` で `pipewire` や `default` が候補に出るか確認してください。
+> ※ 本リポジトリに同梱されているループバック補助スクリプトは Linux 向け（`scripts/setup_audio_loopback_linux.sh`）のみです。
+> 　macOS／Windows で利用する場合は、各 OS に合わせて手動でルーティングを調整してください。
+
+- **Linux (PipeWire/PulseAudio)**: `scripts/setup_audio_loopback_linux.sh` が `module-null-sink` を作成し、Monitor を既定入力に切り替えます。`run_transcriber.sh` や `python -m transcriber.cli --easy-start` から呼び出した場合は CLI 側で既定デバイスをスナップショットし、終了時に自動復元します。スクリプト単体で実行した場合は `scripts/reset_audio_defaults.sh` などで明示的に戻してください。`python -m transcriber.cli --diagnose-audio` で `pipewire` や `default` が候補に出るか確認してください。
 - 共通: まず `python -m transcriber.cli --check-environment` で依存関係・.env・認証ファイルをチェックし、続けて `--diagnose-audio` でルーティングを確認するとスムーズです。
 - ガイド付きセットアップを見たい場合は `python -m transcriber.cli --setup-wizard` を実行すると、必須ステップと推奨ツールが一覧で表示されます。
 - マイクやスピーカーを即座に復旧したいときは `scripts/reset_audio_defaults.sh` を実行してください。
@@ -216,7 +221,7 @@ Google Meet の選択肢:
 
 ---
 
-## 4. アーキテクチャ概要
+## アーキテクチャ概要
 
 - `transcriber/audio.py`: 16 kHz モノラルの PCM16 を非同期で取得
 - `transcriber/asr/speechmatics_backend.py`: Realtime WebSocket クライアント（Bearer JWT、部分/確定を JSON 受信）
@@ -235,9 +240,9 @@ Google Meet の選択肢:
 
 ---
 
-## 5. 検証と次のステップ（Validation）
+## 検証と次のステップ（Validation）
 
-1. Speechmatics のハンドシェイクを検証（`start` ペイロードが最新スキーマに一致すること）。辞書/`operating_point` 等は必要に応じて調整
+1. Speechmatics のハンドシェイクを検証（`start` ペイロードが最新スキーマに一致すること）。現状のビルドではカスタム辞書や `operating_point` パラメータ送信には対応していないため、必要な場合は `speechmatics_backend.py` の開始メッセージを拡張してください
 2. 録音済みのエスペラント音声でドライリハーサル（WER、話者分離、遅延を測定）
 3. 頻出語や固有名詞を Speechmatics の Custom Dictionary に登録。Vosk の後処理にも同語彙を反映
 4. オフライン経路を検証（Vosk モデルを用意して `--backend=vosk` で比較）
@@ -251,13 +256,13 @@ Google Meet の選択肢:
 
 ---
 
-## 7. 推奨起動ワークフロー（固定ポート 8765）
+## 推奨起動ワークフロー（固定ポート 8765）
 
 Web UI を常に `8765` で起動し「ポート占有」問題を避けるためのランチャーを同梱:
 
 ```bash
 install -Dm755 scripts/run_transcriber.sh ~/bin/run-transcriber.sh
-source /media/yamada/SSD-PUTA1/CODEX作業用202510/.venv311/bin/activate
+source /path/to/.venv311/bin/activate
 ~/bin/run-transcriber.sh              # backend=speechmatics, log-level=INFO
 ```
 
@@ -273,7 +278,7 @@ PORT=8766 LOG_LEVEL=DEBUG BACKEND=whisper ~/bin/run-transcriber.sh
 
 ```bash
 install -Dm755 scripts/prep_webui.sh ~/bin/prep-webui.sh
-source /media/yamada/SSD-PUTA1/CODEX作業用202510/.venv311/bin/activate
+source /path/to/.venv311/bin/activate
 ~/bin/prep-webui.sh && python -m transcriber.cli --backend=speechmatics --log-level=INFO
 ```
 
@@ -295,7 +300,7 @@ sleep 0.5 && lsof -iTCP:8765 || true
 
 ---
 
-## 8. ループバック安定性（PipeWire/WirePlumber）
+## ループバック安定性（PipeWire/WirePlumber）
 
 PipeWire/WirePlumber が既定入力を物理マイクに戻してしまうと、Meet ループバックが無音になります。既定を固定し、状態ファイル変更にも自動復旧するには `docs/audio_loopback.md` を参照:
 
@@ -311,7 +316,7 @@ systemctl --user enable --now wp-force-monitor.service wp-force-monitor.path
 
 ---
 
-## 6. オーディオデバイスのホットリロード（Ubuntu/Linux）
+## オーディオデバイスのホットリロード（Ubuntu/Linux）
 
 OS 側のデバイス切替でパイプラインが中断されないよう、デバイス変更の自動検知・再接続を実装しています。
 
@@ -392,8 +397,8 @@ sleep 0.5 && lsof -iTCP:8765    # 何も出なければOK
 
 ## 付録 B: セキュリティと .env の取り扱い
 
-- 本リポジトリには学習/再現容易性のため、伏せ字入りの `.env` を「追跡」しています（実値は空欄や `*`）。
-- 本番運用では `.env` を追跡しない構成を推奨します（例: `.env.local` を使用し `.gitignore` に追加）。
+- 本リポジトリには検証を簡単にするための `.env` を同梱しています。実際に運用する前に内容を確認し、自身の環境に合わせた値へ置き換えてください。
+- 本番運用では `.env` を追跡しない構成を推奨します（例: `.env.local` を作成して `.gitignore` に追加）。
 - 実キーはコミット/共有しないでください。必要に応じて定期的なキーのローテーションを行ってください。
 
 ### 緊急手順: 秘密情報がリポジトリ内で発見された場合（簡易ガイド）
